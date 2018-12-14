@@ -28,7 +28,7 @@ object Program extends App {
           result <- scanTaskExecutor.runTask(task)
           _ <- scanTaskExecutor.persistResult(result)
           subs <- notification.subscriberList(target, task)
-          notes <- IO.traverse(subs)(notification.notify)
+          notes <- IO.traverse(subs)(notification.notifySub)
         } yield notes
       }
     } yield notes.flatten

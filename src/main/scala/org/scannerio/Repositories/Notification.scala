@@ -5,7 +5,7 @@ import scala.util.Random
 
 trait Notification {
   def subscriberList(target: Target, task: ScanTask): IO[Exception, List[ScanSubscriber]]
-  def notify(scanSubscriber: ScanSubscriber): IO[Exception, String]
+  def notifySub(scanSubscriber: ScanSubscriber): IO[Exception, String]
 }
 
 class DefaultNotification extends Notification {
@@ -19,7 +19,7 @@ class DefaultNotification extends Notification {
     IO.point(res)
   }
 
-  override def notify(subscriber: ScanSubscriber): IO[Exception, String] = {
+  override def notifySub(subscriber: ScanSubscriber): IO[Exception, String] = {
     val head = Random.nextInt(2) == 1
     if (head && subscriber.name == "target-two => Muki") {
       IO.fail(s"Hate ${subscriber.name}").leftMap(new Exception(_))
