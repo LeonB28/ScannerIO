@@ -1,11 +1,13 @@
 package org.scannerio
 
+import org.scannerio.Entites.Target
 import org.scannerio.Repositories._
 import scalaz.zio.{App, IO}
 
+
 object Program extends App {
   override def run(args: List[String]): IO[Nothing, Program.ExitStatus] = {
-    val repo1 = new ScanTarget()
+    val repo1 = new DefaultTargetRepository()
     val repo2 = new DefaultScanTaskExecutor()
     val repo3 = new DefaultNotification
 
@@ -17,11 +19,21 @@ object Program extends App {
       .map(ExitStatus.ExitNow(_))
   }
 
-  def program(scanTargetRepository: ScanTargetRepository,
+  def program(scanTargetRepository: TargetRepository,
               scanTaskExecutor: ScanTaskExecutor,
               notification: Notification): IO[Exception, List[String]] = {
+
+    def waitForNextTarget: IO[Exception, Target] = for {
+      maybeTarget <- scanTargetRepository.nextTargetToScan
+      target <- maybeTarget.map(IO.point(_)).getOrElse {
+        scanTargetRepository.pause
+        waitForNextTarget
+      }
+    } yield target
+
+
     for {
-      target <- scanTargetRepository.nextTargetToScan
+      target <- waitForNextTarget
       tasks <- scanTargetRepository.tasksFor(target)
       notes <- IO.traverse(tasks) { task =>
         for {
