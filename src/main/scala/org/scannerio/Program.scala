@@ -1,17 +1,15 @@
 package org.scannerio
 
-import org.scannerio.Entites.Target
 import org.scannerio.Repositories._
-import scalaz.zio.{App, IO}
-
+import scalaz.zio.{App, IO, Schedule}
 
 object Program extends App {
   override def run(args: List[String]): IO[Nothing, Program.ExitStatus] = {
-    val repo1 = new DefaultTargetRepository()
-    val repo2 = new DefaultScanTaskExecutor()
-    val repo3 = new DefaultNotification
+    val targets = new DefaultTargetRepository
+    val taskExecutor = new DefaultScanTaskExecutor
+    val notifier = new DefaultNotification
 
-    program(repo1, repo2, repo3)
+    program(targets, taskExecutor, notifier)
       .map(_.foreach(println))
       .leftMap(e => println(e.getMessage))
       .run.forever
@@ -22,26 +20,25 @@ object Program extends App {
   def program(scanTargetRepository: TargetRepository,
               scanTaskExecutor: ScanTaskExecutor,
               notification: Notification): IO[Exception, List[String]] = {
-
-    def waitForNextTarget: IO[Exception, Target] = for {
-      maybeTarget <- scanTargetRepository.nextTargetToScan
-      target <- maybeTarget.map(IO.point(_)).getOrElse {
-        scanTargetRepository.pause
-        waitForNextTarget
-      }
-    } yield target
-
-
     for {
-      target <- waitForNextTarget
-      tasks <- scanTargetRepository.tasksFor(target)
-      notes <- IO.traverse(tasks) { task =>
+      target <- scanTargetRepository.nextTargetToScan
+        .repeat(Schedule.doWhile(_.isEmpty))
+        .map(_.get)
+
+      notes <- IO.traverse(target.tasks) { task =>
         for {
           result <- scanTaskExecutor.runTask(task)
           _ <- scanTaskExecutor.persistResult(result)
-          subs <- notification.subscriberList(target, task)
-          notes <- IO.traverse(subs)(notification.notifySub)
-        } yield notes
+          analyzeTask <- scanTargetRepository.analyzeTaskFor(task)
+          hasPattern <- analyzeTask.analyze(result)
+          notificationAttempts <-
+            if (hasPattern)
+              for {
+                subs <- notification.subscriberList(target, task)
+                notes <- IO.traverse(subs)(notification.notifySub)
+              } yield notes
+            else IO.point(Seq.empty)
+        } yield notificationAttempts
       }
     } yield notes.flatten
   }
