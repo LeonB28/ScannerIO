@@ -1,17 +1,19 @@
 package org.scannerio
 
+import java.util.concurrent.TimeUnit
+
 import org.scannerio.Entites.Target
 import org.scannerio.Repositories._
-import scalaz.zio.{App, IO}
-
+import scalaz.zio.duration._
+import scalaz.zio.{App, IO, Schedule}
 
 object Program extends App {
   override def run(args: List[String]): IO[Nothing, Program.ExitStatus] = {
-    val repo1 = new DefaultTargetRepository()
-    val repo2 = new DefaultScanTaskExecutor()
-    val repo3 = new DefaultNotification
+    val targets = new DefaultTargetRepository
+    val taskExecutor = new DefaultScanTaskExecutor
+    val notifier = new DefaultNotification
 
-    program(repo1, repo2, repo3)
+    program(targets, taskExecutor, notifier)
       .map(_.foreach(println))
       .leftMap(e => println(e.getMessage))
       .run.forever
@@ -22,27 +24,28 @@ object Program extends App {
   def program(scanTargetRepository: TargetRepository,
               scanTaskExecutor: ScanTaskExecutor,
               notification: Notification): IO[Exception, List[String]] = {
-
-    def waitForNextTarget: IO[Exception, Target] = for {
-      maybeTarget <- scanTargetRepository.nextTargetToScan
-      target <- maybeTarget.map(IO.point(_)).getOrElse {
-        scanTargetRepository.pause
-        waitForNextTarget
-      }
-    } yield target
-
-
     for {
-      target <- waitForNextTarget
-      tasks <- scanTargetRepository.tasksFor(target)
-      notes <- IO.traverse(tasks) { task =>
+
+      nextTarget <- scanTargetRepository.nextTargetToScan
+        .repeat(Schedule.doUntil[Option[Target]](maybe => maybe.isDefined)
+          .delayed(_ => Duration(2, TimeUnit.MINUTES))) // wait if no target defined
+        .map(_.get)
+
+      sentEmailOutcomes <- IO.foreach(nextTarget.tasks) { task =>
         for {
           result <- scanTaskExecutor.runTask(task)
           _ <- scanTaskExecutor.persistResult(result)
-          subs <- notification.subscriberList(target, task)
-          notes <- IO.traverse(subs)(notification.notifySub)
-        } yield notes
+          analyzeTask <- scanTargetRepository.analyzeTaskFor(task)
+          hasPattern <- analyzeTask.analyze(result)
+          notificationAttempts <-
+            if (hasPattern)
+              for {
+                subs <- notification.subscriberList(nextTarget, task)
+                notes <- IO.foreach(subs)(notification.notifySub)
+              } yield notes
+            else IO.succeedLazy(Seq.empty)
+        } yield notificationAttempts
       }
-    } yield notes.flatten
+    } yield sentEmailOutcomes.flatten
   }
 }
