@@ -1,6 +1,10 @@
 package org.scannerio
 
+import java.util.concurrent.TimeUnit
+
+import org.scannerio.Entites.Target
 import org.scannerio.Repositories._
+import scalaz.zio.duration._
 import scalaz.zio.{App, IO, Schedule}
 
 object Program extends App {
@@ -21,11 +25,13 @@ object Program extends App {
               scanTaskExecutor: ScanTaskExecutor,
               notification: Notification): IO[Exception, List[String]] = {
     for {
-      target <- scanTargetRepository.nextTargetToScan
-        .repeat(Schedule.doWhile(_.isEmpty))
+
+      nextTarget <- scanTargetRepository.nextTargetToScan
+        .repeat(Schedule.doUntil[Option[Target]](maybe => maybe.isDefined)
+          .delayed(_ => Duration(2, TimeUnit.MINUTES))) // wait if no target defined
         .map(_.get)
 
-      notes <- IO.traverse(target.tasks) { task =>
+      sentEmailOutcomes <- IO.foreach(nextTarget.tasks) { task =>
         for {
           result <- scanTaskExecutor.runTask(task)
           _ <- scanTaskExecutor.persistResult(result)
@@ -34,12 +40,12 @@ object Program extends App {
           notificationAttempts <-
             if (hasPattern)
               for {
-                subs <- notification.subscriberList(target, task)
-                notes <- IO.traverse(subs)(notification.notifySub)
+                subs <- notification.subscriberList(nextTarget, task)
+                notes <- IO.foreach(subs)(notification.notifySub)
               } yield notes
-            else IO.point(Seq.empty)
+            else IO.succeedLazy(Seq.empty)
         } yield notificationAttempts
       }
-    } yield notes.flatten
+    } yield sentEmailOutcomes.flatten
   }
 }

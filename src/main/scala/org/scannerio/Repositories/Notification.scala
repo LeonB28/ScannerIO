@@ -16,7 +16,7 @@ class DefaultNotification extends Notification {
       ScanSubscriber(s"$pre => Muki"),
       ScanSubscriber(s"$pre => Sabaz")
     )
-    IO.point(res)
+    IO.succeedLazy(res)
   }
 
   override def notifySub(subscriber: ScanSubscriber): IO[Exception, String] = {
@@ -24,7 +24,7 @@ class DefaultNotification extends Notification {
     if (head && subscriber.name == "target-two => Muki") {
       IO.fail(s"Hate ${subscriber.name}").leftMap(new Exception(_))
     } else {
-      IO.point(subscriber.name)
+      IO.succeedLazy(subscriber.name)
     }
   }
 }

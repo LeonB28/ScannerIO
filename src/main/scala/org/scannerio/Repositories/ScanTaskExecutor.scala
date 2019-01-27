@@ -13,10 +13,10 @@ class DefaultScanTaskExecutor extends ScanTaskExecutor {
     val res = ScanTaskResult(
       List("try1", "try2", "try3")
     )
-    IO.point(res)
+    IO.succeedLazy(res)
   }
 
   override def persistResult(scanTaskResult: ScanTaskResult): IO[Exception, Unit] = {
-    IO.point(Unit)
+    IO.succeedLazy(Unit)
   }
 }

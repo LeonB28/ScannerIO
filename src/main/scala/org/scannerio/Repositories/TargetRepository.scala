@@ -6,7 +6,6 @@ import scalaz.zio.IO
 trait TargetRepository {
   def nextTargetToScan: IO[Exception, Option[Target]]
   def analyzeTaskFor(scanTask: ScanTask): IO[Exception, TaskAnalyze]
-  def pause: IO[Exception, Unit]
 }
 
 class DefaultTargetRepository extends TargetRepository {
@@ -16,11 +15,9 @@ class DefaultTargetRepository extends TargetRepository {
       ScanTask("two")
     )
 
-    IO.point(Some(Target(name = "target", tasks = tasks)))
+    IO.succeedLazy(Some(Target(name = "target", tasks = tasks)))
   }
-
-
-  override def pause: IO[Exception, Unit] = ???
 
   override def analyzeTaskFor(scanTask: ScanTask): IO[Exception, TaskAnalyze] = ???
 }
+
